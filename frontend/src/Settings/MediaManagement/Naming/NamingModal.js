@@ -53,6 +53,8 @@ const authorTokens = [
 
   { token: '{Author NameFirstCharacter}', example: 'A' },
 
+  { token: '{Author NameLastFirstCharacter}', example: 'N' },
+
   { token: '{Author CleanName}', example: 'Authors Name' },
 
   { token: '{Author SortName}', example: 'Name, Author' },
