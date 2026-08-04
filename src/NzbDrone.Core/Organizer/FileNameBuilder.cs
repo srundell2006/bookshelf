@@ -242,11 +242,31 @@ namespace NzbDrone.Core.Organizer
             tokenHandlers["{Author NameThe}"] = m => TitleThe(author.Name);
             tokenHandlers["{Author SortName}"] = m => author?.Metadata?.Value?.NameLastFirst ?? string.Empty;
             tokenHandlers["{Author NameFirstCharacter}"] = m => TitleThe(author.Name).Substring(0, 1).FirstCharToUpper();
+            tokenHandlers["{Author NameLastFirstCharacter}"] = m => AuthorLastNameFirstCharacter(author);
 
             if (author.Metadata.Value.Disambiguation != null)
             {
                 tokenHandlers["{Author Disambiguation}"] = m => author.Metadata.Value.Disambiguation;
             }
+        }
+
+        private static string AuthorLastNameFirstCharacter(Author author)
+        {
+            // Metadata already stores the Calibre-style "Last, First" form; fall back to
+            // deriving it if a provider left it unset.
+            var lastFirst = author?.Metadata?.Value?.NameLastFirst;
+
+            if (lastFirst.IsNullOrWhiteSpace())
+            {
+                lastFirst = author?.Name.ToLastFirst();
+            }
+
+            if (lastFirst.IsNullOrWhiteSpace())
+            {
+                return string.Empty;
+            }
+
+            return lastFirst.Trim().Substring(0, 1).FirstCharToUpper();
         }
 
         private void AddBookTokens(Dictionary<string, Func<TokenMatch, string>> tokenHandlers, Edition edition)
