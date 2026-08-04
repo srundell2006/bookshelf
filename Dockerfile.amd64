@@ -1,0 +1,74 @@
+# Bookshelf (Readarr fork) — self-contained amd64 build
+# Mirrors the srundell2006/Lidarr Dockerfile.amd64 pattern so Portainer can
+# build straight from the git context with no prebuilt _output required.
+#
+# Toolchain pinned to match mise.toml: dotnet 6.0, node 20.
+
+# Stage 1: Build frontend
+FROM --platform=linux/amd64 node:20-alpine AS ui-build
+WORKDIR /src
+COPY package.json yarn.lock ./
+RUN yarn install --frozen-lockfile
+COPY . .
+RUN yarn build
+
+# Stage 2: Build backend
+FROM --platform=linux/amd64 mcr.microsoft.com/dotnet/sdk:6.0 AS backend-build
+WORKDIR /src
+COPY .editorconfig ./
+COPY Logo/ ./Logo/
+COPY src/ ./src/
+RUN dotnet publish src/NzbDrone.Console/Readarr.Console.csproj \
+        --configuration Release \
+        --framework net6.0 \
+        --runtime linux-x64 \
+        --self-contained false \
+        --output /app \
+        -p:NoWarn=NU1902%3BCS1591 \
+        -p:TreatWarningsAsErrors=false && \
+    dotnet publish src/NzbDrone.Mono/Readarr.Mono.csproj \
+        --configuration Release \
+        --framework net6.0 \
+        --runtime linux-x64 \
+        --self-contained false \
+        --output /app \
+        -p:NoWarn=NU1902%3BCS1591 \
+        -p:TreatWarningsAsErrors=false
+
+# Stage 3: Runtime
+FROM --platform=linux/amd64 mcr.microsoft.com/dotnet/aspnet:6.0
+WORKDIR /app
+COPY --from=backend-build /app ./
+COPY --from=ui-build /src/_output/UI ./UI
+
+# Install full ICU data + locale so non-ASCII filenames (é, ü, ñ, CJK, etc.)
+# are read correctly. Without this the default "C" locale replaces any byte
+# outside ASCII with '?' before the path ever reaches .NET.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends locales && \
+    sed -i 's/^# *\(en_US.UTF-8\)/\1/' /etc/locale.gen && \
+    locale-gen && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV LANG=en_US.UTF-8 \
+    LANGUAGE=en_US:en \
+    LC_ALL=en_US.UTF-8 \
+    COMPlus_EnableDiagnostics=0 \
+    XDG_CONFIG_HOME=/config/xdg
+
+# Metadata provider — overridden at runtime by the compose file so it points
+# at the self-hosted rreading-glasses instance rather than the public one.
+ARG METADATA_URL=https://api.bookinfo.pro
+ENV METADATA_URL=${METADATA_URL}
+
+RUN groupadd -g 1000 readarr && \
+    useradd -u 1000 -g readarr -m readarr && \
+    mkdir -p /config /data && \
+    chown -R readarr:readarr /config /data /app
+
+USER readarr
+
+EXPOSE 8787
+VOLUME ["/config", "/data"]
+
+ENTRYPOINT ["/app/Readarr", "-nobrowser", "-data=/config"]
