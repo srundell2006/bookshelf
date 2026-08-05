@@ -46,6 +46,7 @@ namespace NzbDrone.Core.Configuration
         //Author refresh throttling
         int AuthorRefreshBatchSize { get; set; }
         int AuthorRefreshMaxAgeDays { get; set; }
+        int AuthorEndedAfterYears { get; set; }
 
         //Indexers
         int Retention { get; set; }

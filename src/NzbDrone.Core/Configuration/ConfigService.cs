@@ -124,6 +124,13 @@ namespace NzbDrone.Core.Configuration
             set { SetValue("AuthorRefreshMaxAgeDays", value); }
         }
 
+        public int AuthorEndedAfterYears
+        {
+            get { return GetValueInt("AuthorEndedAfterYears", 5); }
+
+            set { SetValue("AuthorEndedAfterYears", value); }
+        }
+
         public int MaximumSize
         {
             get { return GetValueInt("MaximumSize", 0); }
