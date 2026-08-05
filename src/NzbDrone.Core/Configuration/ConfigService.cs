@@ -110,6 +110,20 @@ namespace NzbDrone.Core.Configuration
             set { SetValue("RssSyncInterval", value); }
         }
 
+        public int AuthorRefreshBatchSize
+        {
+            get { return GetValueInt("AuthorRefreshBatchSize", 1000); }
+
+            set { SetValue("AuthorRefreshBatchSize", value); }
+        }
+
+        public int AuthorRefreshMaxAgeDays
+        {
+            get { return GetValueInt("AuthorRefreshMaxAgeDays", 60); }
+
+            set { SetValue("AuthorRefreshMaxAgeDays", value); }
+        }
+
         public int MaximumSize
         {
             get { return GetValueInt("MaximumSize", 0); }
