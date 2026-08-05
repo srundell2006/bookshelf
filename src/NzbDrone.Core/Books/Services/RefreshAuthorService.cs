@@ -332,7 +332,21 @@ namespace NzbDrone.Core.Books
             {
                 // some metadata has updated so rescan unmatched
                 // (but don't add new authors to reduce repeated searches against api)
-                var folders = _rootFolderService.All().Select(x => x.Path).ToList();
+                //
+                // Scan only the folders of the authors that were actually refreshed. Passing the
+                // root folders here costs a full recursive enumeration of the entire library for
+                // what is usually a handful of authors; DiskScanService explicitly supports being
+                // handed a subset of a root folder, and its DB cleanup is scoped by path prefix.
+                var folders = _authorService.GetAuthors(authorIds)
+                    .Select(x => x.Path)
+                    .Where(x => x.IsNotNullOrWhiteSpace())
+                    .Distinct()
+                    .ToList();
+
+                if (!folders.Any())
+                {
+                    folders = _rootFolderService.All().Select(x => x.Path).ToList();
+                }
 
                 _commandQueueManager.Push(new RescanFoldersCommand(folders, FilterFilesType.Matched, false, authorIds));
             }
@@ -381,8 +395,13 @@ namespace NzbDrone.Core.Books
             else
             {
                 var updated = false;
-                var authors = _authorService.GetAllAuthors().OrderBy(c => c.Name).ToList();
-                var authorIds = authors.Select(x => x.Id).ToList();
+                var manualTrigger = trigger == CommandTrigger.Manual;
+
+                var batchSize = Math.Max(1, _configService.AuthorRefreshBatchSize);
+                var maxAgeDays = Math.Max(1, _configService.AuthorRefreshMaxAgeDays);
+                var staleBefore = DateTime.UtcNow.AddDays(-maxAgeDays);
+
+                var allAuthors = _authorService.GetAllAuthors();
 
                 var updatedGoodreadsAuthors = new HashSet<string>();
 
@@ -391,32 +410,50 @@ namespace NzbDrone.Core.Books
                     updatedGoodreadsAuthors = _authorInfo.GetChangedAuthors(message.LastStartTime.Value);
                 }
 
+                // Round-robin the library instead of walking every author each run: an author
+                // becomes due once it has never been synced, has passed the configured maximum
+                // age, or the metadata provider reports it changed. Oldest goes first, so the
+                // batch limit shifts the work forward rather than starving anyone.
+                var authors = allAuthors
+                    .Where(a => a.LastInfoSync == null ||
+                                a.LastInfoSync < staleBefore ||
+                                updatedGoodreadsAuthors.Contains(a.ForeignAuthorId))
+                    .OrderBy(a => a.LastInfoSync ?? DateTime.MinValue)
+                    .Take(batchSize)
+                    .ToList();
+
+                var cycleRuns = (int)Math.Ceiling(allAuthors.Count / (double)batchSize);
+
+                if (cycleRuns > maxAgeDays)
+                {
+                    _logger.Warn("Author refresh cannot keep up: {0} authors at {1} per run needs {2} runs to cycle, but the maximum age is {3} days. Raise AuthorRefreshBatchSize or AuthorRefreshMaxAgeDays.",
+                                 allAuthors.Count,
+                                 batchSize,
+                                 cycleRuns,
+                                 maxAgeDays);
+                }
+
+                _logger.Info("Refreshing {0} of {1} authors (batch size {2}, maximum age {3} days)",
+                             authors.Count,
+                             allAuthors.Count,
+                             batchSize,
+                             maxAgeDays);
+
                 foreach (var author in authors)
                 {
-                    var manualTrigger = message.Trigger == CommandTrigger.Manual;
-
-                    if ((updatedGoodreadsAuthors == null && _checkIfAuthorShouldBeRefreshed.ShouldRefresh(author)) ||
-                        (updatedGoodreadsAuthors != null && updatedGoodreadsAuthors.Contains(author.ForeignAuthorId)) ||
-                        manualTrigger)
+                    try
                     {
-                        try
-                        {
-                            LogProgress(author);
-                            var data = GetSkyhookData(author.ForeignAuthorId);
-                            updated |= RefreshEntityInfo(author, null, data, manualTrigger, false, message.LastStartTime);
-                        }
-                        catch (Exception e)
-                        {
-                            _logger.Error(e, "Couldn't refresh info for {0}", author);
-                        }
+                        LogProgress(author);
+                        var data = GetSkyhookData(author.ForeignAuthorId);
+                        updated |= RefreshEntityInfo(author, null, data, manualTrigger, false, message.LastStartTime);
                     }
-                    else
+                    catch (Exception e)
                     {
-                        _logger.Info("Skipping refresh of author: {0}", author.Name);
+                        _logger.Error(e, "Couldn't refresh info for {0}", author);
                     }
                 }
 
-                Rescan(authorIds, isNew, trigger, updated);
+                Rescan(authors.Select(x => x.Id).ToList(), isNew, trigger, updated);
             }
         }
     }
