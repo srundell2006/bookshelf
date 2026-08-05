@@ -324,8 +324,22 @@ namespace NzbDrone.Core.MediaFiles.BookImport
             foreach (var bookImport in bookImports)
             {
                 var book = bookImport.First().ImportDecision.Item.Book;
-                var edition = book.Editions.Value.Single(x => x.Monitored);
                 var author = bookImport.First().ImportDecision.Item.Author;
+
+                // A book assembled during a disk scan does not always carry a monitored
+                // edition -- EnsureEditionAdded below inserts new editions with
+                // Monitored = false -- and Single() threw "Sequence contains no matching
+                // element" for those. This loop only publishes notification events, but the
+                // throw escaped the whole Import call, after files had already been written
+                // by AddMany above, so one odd book failed an entire author's rescan.
+                var editions = book.Editions?.Value;
+                var edition = editions?.FirstOrDefault(x => x.Monitored) ?? editions?.FirstOrDefault();
+
+                if (edition == null)
+                {
+                    _logger.Debug("No edition available for {0}, skipping import event", book);
+                    continue;
+                }
 
                 if (bookImport.Where(e => e.Errors.Count == 0).ToList().Count > 0 && author != null && book != null)
                 {
