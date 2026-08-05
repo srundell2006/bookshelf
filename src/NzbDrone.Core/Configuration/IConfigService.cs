@@ -43,6 +43,10 @@ namespace NzbDrone.Core.Configuration
         string ChmodFolder { get; set; }
         string ChownGroup { get; set; }
 
+        //Author refresh throttling
+        int AuthorRefreshBatchSize { get; set; }
+        int AuthorRefreshMaxAgeDays { get; set; }
+
         //Indexers
         int Retention { get; set; }
         int RssSyncInterval { get; set; }
