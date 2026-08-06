@@ -131,6 +131,13 @@ namespace NzbDrone.Core.Configuration
             set { SetValue("AuthorEndedAfterYears", value); }
         }
 
+        public int RescanFoldersInterval
+        {
+            get { return GetValueInt("RescanFoldersInterval", 1440); }
+
+            set { SetValue("RescanFoldersInterval", value); }
+        }
+
         public int MaximumSize
         {
             get { return GetValueInt("MaximumSize", 0); }
