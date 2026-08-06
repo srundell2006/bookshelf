@@ -47,6 +47,7 @@ namespace NzbDrone.Core.Configuration
         int AuthorRefreshBatchSize { get; set; }
         int AuthorRefreshMaxAgeDays { get; set; }
         int AuthorEndedAfterYears { get; set; }
+        int RescanFoldersInterval { get; set; }
 
         //Indexers
         int Retention { get; set; }

@@ -98,7 +98,7 @@ namespace NzbDrone.Core.Jobs
 
                     new ScheduledTask
                     {
-                        Interval = 24 * 60,
+                        Interval = GetRescanFoldersInterval(),
                         TypeName = typeof(RescanFoldersCommand).FullName
                     },
 
@@ -170,6 +170,22 @@ namespace NzbDrone.Core.Jobs
             return interval * 60 * 24;
         }
 
+        private int GetRescanFoldersInterval()
+        {
+            // The scheduled rescan walks every root folder recursively. On a large library
+            // on a network share that takes hours and blocks the command queue for
+            // everything else, while the per-author rescans queued after a refresh cover
+            // the same ground far more cheaply. Zero disables the scheduled sweep.
+            var interval = _configService.RescanFoldersInterval;
+
+            if (interval < 0)
+            {
+                return 0;
+            }
+
+            return interval;
+        }
+
         private int GetRssSyncInterval()
         {
             var interval = _configService.RssSyncInterval;
@@ -215,10 +231,14 @@ namespace NzbDrone.Core.Jobs
             var backup = _scheduledTaskRepository.GetDefinition(typeof(BackupCommand));
             backup.Interval = GetBackupInterval();
 
-            _scheduledTaskRepository.UpdateMany(new List<ScheduledTask> { rss, backup });
+            var rescanFolders = _scheduledTaskRepository.GetDefinition(typeof(RescanFoldersCommand));
+            rescanFolders.Interval = GetRescanFoldersInterval();
+
+            _scheduledTaskRepository.UpdateMany(new List<ScheduledTask> { rss, backup, rescanFolders });
 
             _cache.Find(rss.TypeName).Interval = rss.Interval;
             _cache.Find(backup.TypeName).Interval = backup.Interval;
+            _cache.Find(rescanFolders.TypeName).Interval = rescanFolders.Interval;
         }
     }
 }
