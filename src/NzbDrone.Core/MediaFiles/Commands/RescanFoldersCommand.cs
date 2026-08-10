@@ -7,8 +7,12 @@ namespace NzbDrone.Core.MediaFiles.Commands
     {
         public RescanFoldersCommand()
         {
-            // These are the settings used in the scheduled task
-            Filter = FilterFilesType.Known;
+            // These are the settings used in the scheduled task.
+            // Matched (not Known) so that files which are on disk but have never been
+            // successfully matched to a book are re-offered to the importer on every
+            // scheduled scan. With Known, any file that failed import once is skipped
+            // forever because a BookFile row exists for it with the same size/mtime.
+            Filter = FilterFilesType.Matched;
             AddNewAuthors = true;
         }
 
