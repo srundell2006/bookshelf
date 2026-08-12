@@ -5,7 +5,6 @@ import { withRouter } from 'react-router-dom';
 import { createSelector } from 'reselect';
 import { fetchTranslations, saveDimensions, setIsSidebarVisible } from 'Store/Actions/appActions';
 import { fetchAuthor } from 'Store/Actions/authorActions';
-import { fetchBooks } from 'Store/Actions/bookActions';
 import { fetchCustomFilters } from 'Store/Actions/customFilterActions';
 import {
   fetchImportLists,
@@ -180,9 +179,6 @@ function createMapDispatchToProps(dispatch, props) {
     dispatchFetchAuthor() {
       dispatch(fetchAuthor());
     },
-    dispatchFetchBooks() {
-      dispatch(fetchBooks());
-    },
     dispatchFetchCustomFilters() {
       dispatch(fetchCustomFilters());
     },
@@ -237,8 +233,13 @@ class PageConnector extends Component {
 
   componentDidMount() {
     if (!this.props.isPopulated) {
+      // Deliberately does not fetch books here.  Pulling the entire book table into
+      // the store at start-up is fine on a small library and fatal on a large one:
+      // with ~400k book records the unfiltered /api/v1/book call takes minutes, and
+      // every page that reads books - the author page in particular - fails while it
+      // is outstanding.  Pages that need books now fetch their own: the author page
+      // asks for one author's books, the book index asks for all of them.
       this.props.dispatchFetchAuthor();
-      this.props.dispatchFetchBooks();
       this.props.dispatchFetchCustomFilters();
       this.props.dispatchFetchTags();
       this.props.dispatchFetchLanguages();
@@ -267,7 +268,6 @@ class PageConnector extends Component {
       isPopulated,
       hasError,
       dispatchFetchAuthor,
-      dispatchFetchBooks,
       dispatchFetchTags,
       dispatchFetchLanguages,
       dispatchFetchQualityProfiles,
@@ -309,7 +309,6 @@ PageConnector.propTypes = {
   hasError: PropTypes.bool.isRequired,
   isSidebarVisible: PropTypes.bool.isRequired,
   dispatchFetchAuthor: PropTypes.func.isRequired,
-  dispatchFetchBooks: PropTypes.func.isRequired,
   dispatchFetchCustomFilters: PropTypes.func.isRequired,
   dispatchFetchTags: PropTypes.func.isRequired,
   dispatchFetchLanguages: PropTypes.func.isRequired,
