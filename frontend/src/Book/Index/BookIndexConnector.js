@@ -5,6 +5,7 @@ import { connect } from 'react-redux';
 import { createSelector } from 'reselect';
 import * as commandNames from 'Commands/commandNames';
 import withScrollPosition from 'Components/withScrollPosition';
+import { fetchBooks } from 'Store/Actions/bookActions';
 import { saveBookEditor, setBookFilter, setBookSort, setBookTableOption, setBookView } from 'Store/Actions/bookIndexActions';
 import { executeCommand } from 'Store/Actions/commandActions';
 import scrollPositions from 'Store/scrollPositions';
@@ -45,6 +46,10 @@ function createMapStateToProps() {
 
 function createMapDispatchToProps(dispatch, props) {
   return {
+    dispatchFetchBooks() {
+      dispatch(fetchBooks());
+    },
+
     onTableOptionChange(payload) {
       dispatch(setBookTableOption(payload));
     },
@@ -90,6 +95,17 @@ function createMapDispatchToProps(dispatch, props) {
 class BookIndexConnector extends Component {
 
   //
+  // Lifecycle
+
+  componentDidMount() {
+    // This page is the only one that genuinely needs every book, so it fetches them
+    // itself rather than the whole app paying for it at start-up.
+    if (!this.props.isPopulated) {
+      this.props.dispatchFetchBooks();
+    }
+  }
+
+  //
   // Listeners
 
   onViewSelect = (view) => {
@@ -120,6 +136,8 @@ class BookIndexConnector extends Component {
 }
 
 BookIndexConnector.propTypes = {
+  isPopulated: PropTypes.bool.isRequired,
+  dispatchFetchBooks: PropTypes.func.isRequired,
   isSmallScreen: PropTypes.bool.isRequired,
   view: PropTypes.string.isRequired,
   dispatchSetBookView: PropTypes.func.isRequired,
