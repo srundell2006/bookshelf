@@ -6,6 +6,7 @@ import { connect } from 'react-redux';
 import { createSelector } from 'reselect';
 import * as commandNames from 'Commands/commandNames';
 import { toggleAuthorMonitored } from 'Store/Actions/authorActions';
+import { fetchBooks } from 'Store/Actions/bookActions';
 import { clearBookFiles, fetchBookFiles } from 'Store/Actions/bookFileActions';
 import { saveBookEditor } from 'Store/Actions/bookIndexActions';
 import { executeCommand } from 'Store/Actions/commandActions';
@@ -205,6 +206,7 @@ function createMapStateToProps() {
 }
 
 const mapDispatchToProps = {
+  fetchBooks,
   fetchSeries,
   clearSeries,
   saveBookEditor,
@@ -266,6 +268,12 @@ class AuthorDetailsConnector extends Component {
   populate = () => {
     const authorId = this.props.id;
 
+    // Fetch only this author's books.  The whole library used to be pulled into the
+    // store at app start, which on a large collection meant every page waited on a
+    // multi-minute /api/v1/book call and this page reported "Loading books failed".
+    // fetchBooks keeps books already held for other authors, so navigating between
+    // authors accumulates rather than refetching.
+    this.props.fetchBooks({ authorId });
     this.props.fetchSeries({ authorId });
     this.props.fetchBookFiles({ authorId });
     this.props.fetchQueueDetails({ authorId });
@@ -331,6 +339,7 @@ AuthorDetailsConnector.propTypes = {
   isRefreshing: PropTypes.bool.isRequired,
   isRenamingFiles: PropTypes.bool.isRequired,
   isRenamingAuthor: PropTypes.bool.isRequired,
+  fetchBooks: PropTypes.func.isRequired,
   fetchSeries: PropTypes.func.isRequired,
   clearSeries: PropTypes.func.isRequired,
   saveBookEditor: PropTypes.func.isRequired,
