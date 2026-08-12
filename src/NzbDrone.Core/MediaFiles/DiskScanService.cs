@@ -189,7 +189,18 @@ namespace NzbDrone.Core.MediaFiles
                 var decisionsStopwatch = Stopwatch.StartNew();
 
                 // Stat the files for this batch only.  These go out of scope when the batch ends.
-                var batchFiles = batch.Select(x => _diskProvider.GetFileInfo(x)).ToList();
+                // Checking Exists both drops files that disappeared between enumeration and now
+                // and primes the cached stat data, so the importer reading Size later cannot
+                // throw FileNotFoundException and abort the whole scan over one missing file.
+                var batchFiles = batch
+                    .Select(x => _diskProvider.GetFileInfo(x))
+                    .Where(x => x.Exists)
+                    .ToList();
+
+                if (!batchFiles.Any())
+                {
+                    continue;
+                }
 
                 var decisions = _importDecisionMaker.GetImportDecisions(batchFiles, null, null, config);
 
