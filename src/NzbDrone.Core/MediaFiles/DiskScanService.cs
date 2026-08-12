@@ -39,6 +39,11 @@ namespace NzbDrone.Core.MediaFiles
         public static readonly Regex ExcludedSubFoldersRegex = new Regex(@"(?:\\|\/|^)(?:extras|@eadir|extrafanart|plex versions|\.[^\\/]+)(?:\\|\/)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         public static readonly Regex ExcludedFilesRegex = new Regex(@"^\._|^Thumbs\.db$|^\.DS_store$|\.partial~$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        // Number of files identified and imported per commit.  Kept small deliberately: the cost
+        // of an extra round of small queries per batch is trivial next to holding an entire
+        // library's worth of decisions in memory and writing nothing until the scan ends.
+        private const int ImportBatchSize = 100;
+
         private readonly IConfigService _configService;
         private readonly IDiskProvider _diskProvider;
         private readonly ICalibreProxy _calibre;
@@ -151,8 +156,6 @@ namespace NzbDrone.Core.MediaFiles
             musicFilesStopwatch.Stop();
             _logger.Trace("Finished getting track files for:\n{0} [{1}]", folders.ConcatToString("\n"), musicFilesStopwatch.Elapsed);
 
-            var decisionsStopwatch = Stopwatch.StartNew();
-
             var config = new ImportDecisionMakerConfig
             {
                 Filter = filter,
@@ -160,66 +163,93 @@ namespace NzbDrone.Core.MediaFiles
                 AddNewAuthors = addNewAuthors
             };
 
-            var decisions = _importDecisionMaker.GetImportDecisions(mediaFileList, null, null, config);
-
-            decisionsStopwatch.Stop();
-            _logger.Debug("Import decisions complete [{0}]", decisionsStopwatch.Elapsed);
-
             var importStopwatch = Stopwatch.StartNew();
-            _importApprovedTracks.Import(decisions, false);
 
-            // decisions may have been filtered to just new files.  Anything new and approved will have been inserted.
-            // Now we need to make sure anything new but not approved gets inserted
-            // Note that knownFiles will include anything imported just now
-            var knownFiles = new List<BookFile>();
-            folders.ForEach(x => knownFiles.AddRange(_mediaFileService.GetFilesWithBasePath(x)));
+            // Process the scan in batches instead of building decisions for every file and
+            // committing once at the end.  On a large library that single pass holds every
+            // LocalBook in memory for the whole run, throughput degrades as it goes, and
+            // nothing at all is written until the last book is identified - so an interrupted
+            // scan loses everything.  Each batch below is identified, imported and reconciled
+            // on its own, so progress is durable and restartable.
+            var batches = CreateImportBatches(mediaFileList, ImportBatchSize);
 
-            var newFiles = decisions
-                .ExceptBy(x => x.Item.Path, knownFiles, x => x.Path, PathEqualityComparer.Instance)
-                .Select(decision => new BookFile
-                {
-                    Path = decision.Item.Path,
-                    CalibreId = decision.Item.CalibreId,
-                    Part = decision.Item.Part,
-                    PartCount = decision.Item.PartCount,
-                    Size = decision.Item.Size,
-                    Modified = decision.Item.Modified,
-                    DateAdded = DateTime.UtcNow,
-                    Quality = decision.Item.Quality,
-                    MediaInfo = decision.Item.FileTrackInfo.MediaInfo,
-                    Edition = decision.Item.Edition
-                })
-                .ToList();
-            _mediaFileService.AddMany(newFiles);
+            var totalNew = 0;
+            var totalUpdated = 0;
 
-            _logger.Debug($"Inserted {newFiles.Count} new unmatched trackfiles");
+            for (var batchNumber = 0; batchNumber < batches.Count; batchNumber++)
+            {
+                var batch = batches[batchNumber];
 
-            // finally update info on size/modified for existing files
-            var updatedFiles = knownFiles
-                .Join(decisions,
-                      x => x.Path,
-                      x => x.Item.Path,
-                      (file, decision) => new
-                      {
-                          File = file,
-                          Item = decision.Item
-                      },
-                      PathEqualityComparer.Instance)
-                .Where(x => x.File.Size != x.Item.Size ||
-                       Math.Abs((x.File.Modified - x.Item.Modified).TotalSeconds) > 1)
-                .Select(x =>
-                {
-                    x.File.Size = x.Item.Size;
-                    x.File.Modified = x.Item.Modified;
-                    x.File.MediaInfo = x.Item.FileTrackInfo.MediaInfo;
-                    x.File.Quality = x.Item.Quality;
-                    return x.File;
-                })
-                .ToList();
+                _logger.ProgressInfo("Importing batch {0}/{1} ({2} files)", batchNumber + 1, batches.Count, batch.Count);
 
-            _mediaFileService.Update(updatedFiles);
+                var decisionsStopwatch = Stopwatch.StartNew();
 
-            _logger.Debug($"Updated info for {updatedFiles.Count} known files");
+                var decisions = _importDecisionMaker.GetImportDecisions(batch, null, null, config);
+
+                decisionsStopwatch.Stop();
+                _logger.Debug("Import decisions complete for batch {0}/{1} [{2}]", batchNumber + 1, batches.Count, decisionsStopwatch.Elapsed);
+
+                _importApprovedTracks.Import(decisions, false);
+
+                // decisions may have been filtered to just new files.  Anything new and approved will have been inserted.
+                // Now we need to make sure anything new but not approved gets inserted.
+                // Only the directories this batch touched are re-read, so the lookup stays cheap
+                // no matter how large the library is.  Note that knownFiles will include anything
+                // imported just now.
+                var knownFiles = new List<BookFile>();
+                GetBatchFolders(batch).ForEach(x => knownFiles.AddRange(_mediaFileService.GetFilesWithBasePath(x)));
+
+                var newFiles = decisions
+                    .ExceptBy(x => x.Item.Path, knownFiles, x => x.Path, PathEqualityComparer.Instance)
+                    .Select(decision => new BookFile
+                    {
+                        Path = decision.Item.Path,
+                        CalibreId = decision.Item.CalibreId,
+                        Part = decision.Item.Part,
+                        PartCount = decision.Item.PartCount,
+                        Size = decision.Item.Size,
+                        Modified = decision.Item.Modified,
+                        DateAdded = DateTime.UtcNow,
+                        Quality = decision.Item.Quality,
+                        MediaInfo = decision.Item.FileTrackInfo.MediaInfo,
+                        Edition = decision.Item.Edition
+                    })
+                    .ToList();
+                _mediaFileService.AddMany(newFiles);
+
+                totalNew += newFiles.Count;
+
+                // finally update info on size/modified for existing files
+                var updatedFiles = knownFiles
+                    .Join(decisions,
+                          x => x.Path,
+                          x => x.Item.Path,
+                          (file, decision) => new
+                          {
+                              File = file,
+                              Item = decision.Item
+                          },
+                          PathEqualityComparer.Instance)
+                    .Where(x => x.File.Size != x.Item.Size ||
+                           Math.Abs((x.File.Modified - x.Item.Modified).TotalSeconds) > 1)
+                    .Select(x =>
+                    {
+                        x.File.Size = x.Item.Size;
+                        x.File.Modified = x.Item.Modified;
+                        x.File.MediaInfo = x.Item.FileTrackInfo.MediaInfo;
+                        x.File.Quality = x.Item.Quality;
+                        return x.File;
+                    })
+                    .ToList();
+
+                _mediaFileService.Update(updatedFiles);
+
+                totalUpdated += updatedFiles.Count;
+            }
+
+            _logger.Debug($"Inserted {totalNew} new unmatched trackfiles");
+
+            _logger.Debug($"Updated info for {totalUpdated} known files");
 
             var authors = _authorService.GetAuthors(authorIds);
             foreach (var author in authors)
@@ -229,6 +259,45 @@ namespace NzbDrone.Core.MediaFiles
 
             importStopwatch.Stop();
             _logger.Debug("Book import complete for:\n{0} [{1}]", folders.ConcatToString("\n"), importStopwatch.Elapsed);
+        }
+
+        private static List<string> GetBatchFolders(List<IFileInfo> batch)
+        {
+            return batch
+                .Select(x => Path.GetDirectoryName(x.FullName))
+                .Where(x => x.IsNotNullOrWhiteSpace())
+                .Distinct(PathEqualityComparer.Instance)
+                .ToList();
+        }
+
+        private static List<List<IFileInfo>> CreateImportBatches(List<IFileInfo> files, int batchSize)
+        {
+            // Group by containing directory before batching.  Every file that belongs to the same
+            // book has to reach TrackGroupingService together - splitting a multi-part book across
+            // two batches would let each half be identified on its own and mis-matched.  A single
+            // directory therefore always stays whole, even if it is larger than the batch size.
+            var batches = new List<List<IFileInfo>>();
+            var current = new List<IFileInfo>();
+
+            foreach (var group in files.GroupBy(x => Path.GetDirectoryName(x.FullName), PathEqualityComparer.Instance))
+            {
+                var groupFiles = group.ToList();
+
+                if (current.Count > 0 && current.Count + groupFiles.Count > batchSize)
+                {
+                    batches.Add(current);
+                    current = new List<IFileInfo>();
+                }
+
+                current.AddRange(groupFiles);
+            }
+
+            if (current.Count > 0)
+            {
+                batches.Add(current);
+            }
+
+            return batches;
         }
 
         private void CleanMediaFiles(string folder, List<string> mediaFileList)
