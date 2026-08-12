@@ -193,14 +193,18 @@ namespace NzbDrone.Core.MediaFiles
 
                 // decisions may have been filtered to just new files.  Anything new and approved will have been inserted.
                 // Now we need to make sure anything new but not approved gets inserted.
-                // Only the directories this batch touched are re-read, so the lookup stays cheap
-                // no matter how large the library is.  Note that knownFiles will include anything
-                // imported just now.
+                // Scope the lookup by the folders the decisions actually live in, not the folders the
+                // batch was built from.  Identification pulls in additional files already on disk that
+                // belong to the same book but can sit outside this batch; if those are not recognised
+                // as known they get inserted a second time and violate IX_BookFiles_Path.  Note that
+                // knownFiles will include anything imported just now.
                 var knownFiles = new List<BookFile>();
-                GetBatchFolders(batch).ForEach(x => knownFiles.AddRange(_mediaFileService.GetFilesWithBasePath(x)));
+                GetPathFolders(decisions.Select(x => x.Item.Path)).ForEach(x => knownFiles.AddRange(_mediaFileService.GetFilesWithBasePath(x)));
 
                 var newFiles = decisions
                     .ExceptBy(x => x.Item.Path, knownFiles, x => x.Path, PathEqualityComparer.Instance)
+                    .GroupBy(x => x.Item.Path, PathEqualityComparer.Instance)
+                    .Select(g => g.First())
                     .Select(decision => new BookFile
                     {
                         Path = decision.Item.Path,
@@ -261,10 +265,10 @@ namespace NzbDrone.Core.MediaFiles
             _logger.Debug("Book import complete for:\n{0} [{1}]", folders.ConcatToString("\n"), importStopwatch.Elapsed);
         }
 
-        private static List<string> GetBatchFolders(List<IFileInfo> batch)
+        private static List<string> GetPathFolders(IEnumerable<string> paths)
         {
-            return batch
-                .Select(x => Path.GetDirectoryName(x.FullName))
+            return paths
+                .Select(x => Path.GetDirectoryName(x))
                 .Where(x => x.IsNotNullOrWhiteSpace())
                 .Distinct(PathEqualityComparer.Instance)
                 .ToList();
