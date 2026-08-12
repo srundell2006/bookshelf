@@ -94,7 +94,11 @@ namespace NzbDrone.Core.MediaFiles
                 authorIds = new List<int>();
             }
 
-            var mediaFileList = new List<IFileInfo>();
+            // Collect paths rather than IFileInfo for the whole scan.  A path is a few dozen
+            // bytes; an IFileInfo caches stat data and runs to kilobytes, so materialising one
+            // per file up front costs gigabytes on a large library before a single book is
+            // imported.  IFileInfo is created per batch instead, just before it is needed.
+            var mediaFilePaths = new List<string>();
 
             var musicFilesStopwatch = Stopwatch.StartNew();
 
@@ -141,16 +145,16 @@ namespace NzbDrone.Core.MediaFiles
 
                 _logger.ProgressInfo("Scanning {0}", folder);
 
-                var files = FilterFiles(folder, GetBookFiles(folder));
+                var paths = FilterPaths(folder, GetBookFilePaths(folder));
 
-                if (!files.Any())
+                if (!paths.Any())
                 {
                     _logger.Warn("Scan folder {0} is empty.", folder);
                     continue;
                 }
 
-                CleanMediaFiles(folder, files.Select(x => x.FullName).ToList());
-                mediaFileList.AddRange(files);
+                CleanMediaFiles(folder, paths);
+                mediaFilePaths.AddRange(paths);
             }
 
             musicFilesStopwatch.Stop();
@@ -171,7 +175,7 @@ namespace NzbDrone.Core.MediaFiles
             // nothing at all is written until the last book is identified - so an interrupted
             // scan loses everything.  Each batch below is identified, imported and reconciled
             // on its own, so progress is durable and restartable.
-            var batches = CreateImportBatches(mediaFileList, ImportBatchSize);
+            var batches = CreateImportBatches(mediaFilePaths, ImportBatchSize);
 
             var totalNew = 0;
             var totalUpdated = 0;
@@ -184,7 +188,10 @@ namespace NzbDrone.Core.MediaFiles
 
                 var decisionsStopwatch = Stopwatch.StartNew();
 
-                var decisions = _importDecisionMaker.GetImportDecisions(batch, null, null, config);
+                // Stat the files for this batch only.  These go out of scope when the batch ends.
+                var batchFiles = batch.Select(x => _diskProvider.GetFileInfo(x)).ToList();
+
+                var decisions = _importDecisionMaker.GetImportDecisions(batchFiles, null, null, config);
 
                 decisionsStopwatch.Stop();
                 _logger.Debug("Import decisions complete for batch {0}/{1} [{2}]", batchNumber + 1, batches.Count, decisionsStopwatch.Elapsed);
@@ -274,26 +281,28 @@ namespace NzbDrone.Core.MediaFiles
                 .ToList();
         }
 
-        private static List<List<IFileInfo>> CreateImportBatches(List<IFileInfo> files, int batchSize)
+        private static List<List<string>> CreateImportBatches(List<string> paths, int batchSize)
         {
             // Group by containing directory before batching.  Every file that belongs to the same
             // book has to reach TrackGroupingService together - splitting a multi-part book across
             // two batches would let each half be identified on its own and mis-matched.  A single
             // directory therefore always stays whole, even if it is larger than the batch size.
-            var batches = new List<List<IFileInfo>>();
-            var current = new List<IFileInfo>();
+            // Grouping explicitly (rather than relying on enumeration order) keeps this correct
+            // whatever order the provider walks the tree in.
+            var batches = new List<List<string>>();
+            var current = new List<string>();
 
-            foreach (var group in files.GroupBy(x => Path.GetDirectoryName(x.FullName), PathEqualityComparer.Instance))
+            foreach (var group in paths.GroupBy(x => Path.GetDirectoryName(x), PathEqualityComparer.Instance))
             {
-                var groupFiles = group.ToList();
+                var groupPaths = group.ToList();
 
-                if (current.Count > 0 && current.Count + groupFiles.Count > batchSize)
+                if (current.Count > 0 && current.Count + groupPaths.Count > batchSize)
                 {
                     batches.Add(current);
-                    current = new List<IFileInfo>();
+                    current = new List<string>();
                 }
 
-                current.AddRange(groupFiles);
+                current.AddRange(groupPaths);
             }
 
             if (current.Count > 0)
@@ -302,6 +311,29 @@ namespace NzbDrone.Core.MediaFiles
             }
 
             return batches;
+        }
+
+        private List<string> GetBookFilePaths(string path)
+        {
+            var rootFolder = _rootFolderService.GetBestRootFolder(path);
+
+            if (rootFolder != null && rootFolder.IsCalibreLibrary && rootFolder.CalibreSettings != null)
+            {
+                _logger.Info($"Getting book list from calibre for {path}");
+                return _calibre.GetAllBookFilePaths(rootFolder.CalibreSettings)
+                    .Where(x => path.IsParentPath(x))
+                    .ToList();
+            }
+
+            _logger.Debug("Scanning '{0}' for ebook files", path);
+
+            var found = _diskProvider.GetFiles(path, true)
+                .Where(file => MediaFileExtensions.AllExtensions.Contains(Path.GetExtension(file)))
+                .ToList();
+
+            _logger.Debug("{0} book files were found in {1}", found.Count, path);
+
+            return found;
         }
 
         private void CleanMediaFiles(string folder, List<string> mediaFileList)
