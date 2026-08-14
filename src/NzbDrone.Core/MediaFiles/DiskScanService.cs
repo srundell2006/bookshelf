@@ -190,87 +190,21 @@ namespace NzbDrone.Core.MediaFiles
 
                 _logger.ProgressInfo("Importing batch {0}/{1} ({2} files)", batchNumber + 1, batches.Count, batch.Count);
 
-                var decisionsStopwatch = Stopwatch.StartNew();
-
-                // Stat the files for this batch only.  These go out of scope when the batch ends.
-                // Checking Exists both drops files that disappeared between enumeration and now
-                // and primes the cached stat data, so the importer reading Size later cannot
-                // throw FileNotFoundException and abort the whole scan over one missing file.
-                var batchFiles = batch
-                    .Select(x => _diskProvider.GetFileInfo(x))
-                    .Where(x => x.Exists)
-                    .ToList();
-
-                if (!batchFiles.Any())
+                try
                 {
-                    continue;
+                    var (batchNew, batchUpdated) = ImportBatch(batch, config, batchNumber, batches.Count);
+
+                    totalNew += batchNew;
+                    totalUpdated += batchUpdated;
                 }
-
-                var decisions = _importDecisionMaker.GetImportDecisions(batchFiles, null, null, config);
-
-                decisionsStopwatch.Stop();
-                _logger.Debug("Import decisions complete for batch {0}/{1} [{2}]", batchNumber + 1, batches.Count, decisionsStopwatch.Elapsed);
-
-                _importApprovedTracks.Import(decisions, false);
-
-                // decisions may have been filtered to just new files.  Anything new and approved will have been inserted.
-                // Now we need to make sure anything new but not approved gets inserted.
-                // Scope the lookup by the folders the decisions actually live in, not the folders the
-                // batch was built from.  Identification pulls in additional files already on disk that
-                // belong to the same book but can sit outside this batch; if those are not recognised
-                // as known they get inserted a second time and violate IX_BookFiles_Path.  Note that
-                // knownFiles will include anything imported just now.
-                var knownFiles = new List<BookFile>();
-                GetPathFolders(decisions.Select(x => x.Item.Path)).ForEach(x => knownFiles.AddRange(_mediaFileService.GetFilesWithBasePath(x)));
-
-                var newFiles = decisions
-                    .ExceptBy(x => x.Item.Path, knownFiles, x => x.Path, PathEqualityComparer.Instance)
-                    .GroupBy(x => x.Item.Path, PathEqualityComparer.Instance)
-                    .Select(g => g.First())
-                    .Select(decision => new BookFile
-                    {
-                        Path = decision.Item.Path,
-                        CalibreId = decision.Item.CalibreId,
-                        Part = decision.Item.Part,
-                        PartCount = decision.Item.PartCount,
-                        Size = decision.Item.Size,
-                        Modified = decision.Item.Modified,
-                        DateAdded = DateTime.UtcNow,
-                        Quality = decision.Item.Quality,
-                        MediaInfo = decision.Item.FileTrackInfo.MediaInfo,
-                        Edition = decision.Item.Edition
-                    })
-                    .ToList();
-                _mediaFileService.AddMany(newFiles);
-
-                totalNew += newFiles.Count;
-
-                // finally update info on size/modified for existing files
-                var updatedFiles = knownFiles
-                    .Join(decisions,
-                          x => x.Path,
-                          x => x.Item.Path,
-                          (file, decision) => new
-                          {
-                              File = file,
-                              Item = decision.Item
-                          },
-                          PathEqualityComparer.Instance)
-                    .Where(x => x.File.Size != x.Item.Size ||
-                           Math.Abs((x.File.Modified - x.Item.Modified).TotalSeconds) > 1)
-                    .Select(x =>
-                    {
-                        x.File.Size = x.Item.Size;
-                        x.File.Modified = x.Item.Modified;
-                        x.File.MediaInfo = x.Item.FileTrackInfo.MediaInfo;
-                        x.File.Quality = x.Item.Quality;
-                        return x.File;
-                    })
-                    .ToList();
-
-                _mediaFileService.Update(updatedFiles);
-
-                totalUpdated += updatedFiles.Count;
+                catch (Exception ex)
+                {
+                    // One bad batch must not destroy the whole run.  Scanning a large library is
+                    // hours of work, and before this a single failing insert threw all the way out
+                    // of Execute, leaving every remaining batch unscanned.  Log it and carry on;
+                    // the batch will be offered again by the next scan.
+                    _logger.Error(ex, "Failed to import batch {0}/{1}, continuing with the next batch", batchNumber + 1, batches.Count);
+                }
             }
 
             _logger.Debug($"Inserted {totalNew} new unmatched trackfiles");
@@ -285,15 +219,6 @@ namespace NzbDrone.Core.MediaFiles
 
             importStopwatch.Stop();
             _logger.Debug("Book import complete for:\n{0} [{1}]", folders.ConcatToString("\n"), importStopwatch.Elapsed);
-        }
-
-        private static List<string> GetPathFolders(IEnumerable<string> paths)
-        {
-            return paths
-                .Select(x => Path.GetDirectoryName(x))
-                .Where(x => x.IsNotNullOrWhiteSpace())
-                .Distinct(PathEqualityComparer.Instance)
-                .ToList();
         }
 
         private static List<List<string>> CreateImportBatches(List<string> paths, int batchSize)
@@ -376,6 +301,96 @@ namespace NzbDrone.Core.MediaFiles
             var stripped = MultiPartSuffixRegex.Replace(name, string.Empty).Trim();
 
             return stripped.Length > 0 ? stripped : name;
+        }
+
+        private (int New, int Updated) ImportBatch(List<string> batch, ImportDecisionMakerConfig config, int batchNumber, int batchCount)
+        {
+            var decisionsStopwatch = Stopwatch.StartNew();
+
+            // Stat the files for this batch only.  These go out of scope when the batch ends.
+            // Checking Exists both drops files that disappeared between enumeration and now
+            // and primes the cached stat data, so the importer reading Size later cannot
+            // throw FileNotFoundException and abort the whole scan over one missing file.
+            var batchFiles = batch
+                .Select(x => _diskProvider.GetFileInfo(x))
+                .Where(x => x.Exists)
+                .ToList();
+
+            if (!batchFiles.Any())
+            {
+                return (0, 0);
+            }
+
+            var decisions = _importDecisionMaker.GetImportDecisions(batchFiles, null, null, config);
+
+            decisionsStopwatch.Stop();
+            _logger.Debug("Import decisions complete for batch {0}/{1} [{2}]", batchNumber + 1, batchCount, decisionsStopwatch.Elapsed);
+
+            _importApprovedTracks.Import(decisions, false);
+
+            // decisions may have been filtered to just new files.  Anything new and approved will have been inserted.
+            // Now we need to make sure anything new but not approved gets inserted.
+            // Look the decision paths up exactly rather than by containing folder.  Identification
+            // pulls in additional files already on disk that belong to the same book but can sit
+            // outside this batch; if those are not recognised as known they get inserted a second
+            // time and violate IX_BookFiles_Path, which aborts the entire scan.  A folder lookup
+            // is not safe for that check because it compiles to ILIKE '<folder>%' and a folder
+            // name containing a backslash is mangled by ILIKE's escape handling, so its own files
+            // come back unmatched.  Exact matching also avoids reading every row under the root
+            // on every batch.  Note that knownFiles will include anything imported just now.
+            var decisionPaths = decisions
+                .Select(x => x.Item.Path)
+                .Distinct(PathEqualityComparer.Instance)
+                .ToList();
+
+            var knownFiles = _mediaFileService.GetFilesWithPaths(decisionPaths);
+
+            var newFiles = decisions
+                .ExceptBy(x => x.Item.Path, knownFiles, x => x.Path, PathEqualityComparer.Instance)
+                .GroupBy(x => x.Item.Path, PathEqualityComparer.Instance)
+                .Select(g => g.First())
+                .Select(decision => new BookFile
+                {
+                    Path = decision.Item.Path,
+                    CalibreId = decision.Item.CalibreId,
+                    Part = decision.Item.Part,
+                    PartCount = decision.Item.PartCount,
+                    Size = decision.Item.Size,
+                    Modified = decision.Item.Modified,
+                    DateAdded = DateTime.UtcNow,
+                    Quality = decision.Item.Quality,
+                    MediaInfo = decision.Item.FileTrackInfo.MediaInfo,
+                    Edition = decision.Item.Edition
+                })
+                .ToList();
+            _mediaFileService.AddMany(newFiles);
+
+            // finally update info on size/modified for existing files
+            var updatedFiles = knownFiles
+                .Join(decisions,
+                      x => x.Path,
+                      x => x.Item.Path,
+                      (file, decision) => new
+                      {
+                          File = file,
+                          Item = decision.Item
+                      },
+                      PathEqualityComparer.Instance)
+                .Where(x => x.File.Size != x.Item.Size ||
+                       Math.Abs((x.File.Modified - x.Item.Modified).TotalSeconds) > 1)
+                .Select(x =>
+                {
+                    x.File.Size = x.Item.Size;
+                    x.File.Modified = x.Item.Modified;
+                    x.File.MediaInfo = x.Item.FileTrackInfo.MediaInfo;
+                    x.File.Quality = x.Item.Quality;
+                    return x.File;
+                })
+                .ToList();
+
+            _mediaFileService.Update(updatedFiles);
+
+            return (newFiles.Count, updatedFiles.Count);
         }
 
         private List<string> GetBookFilePaths(string path)
