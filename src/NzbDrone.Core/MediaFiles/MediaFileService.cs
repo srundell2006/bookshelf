@@ -29,6 +29,7 @@ namespace NzbDrone.Core.MediaFiles
         BookFile Get(int id);
         List<BookFile> Get(IEnumerable<int> ids);
         List<BookFile> GetFilesWithBasePath(string path);
+        List<BookFile> GetFilesWithPaths(List<string> paths);
         List<BookFile> GetFileWithPath(List<string> path);
         BookFile GetFileWithPath(string path);
         void UpdateMediaInfo(List<BookFile> bookFiles);
@@ -165,6 +166,11 @@ namespace NzbDrone.Core.MediaFiles
         public List<BookFile> GetFilesWithBasePath(string path)
         {
             return _mediaFileRepository.GetFilesWithBasePath(path);
+        }
+
+        public List<BookFile> GetFilesWithPaths(List<string> paths)
+        {
+            return _mediaFileRepository.GetFilesWithPaths(paths);
         }
 
         public List<BookFile> GetFileWithPath(List<string> path)

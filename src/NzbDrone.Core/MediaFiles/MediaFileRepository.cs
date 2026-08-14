@@ -16,6 +16,7 @@ namespace NzbDrone.Core.MediaFiles
         List<BookFile> GetFilesByEdition(int editionId);
         List<BookFile> GetUnmappedFiles();
         List<BookFile> GetFilesWithBasePath(string path);
+        List<BookFile> GetFilesWithPaths(List<string> paths);
         List<BookFile> GetFileWithPath(List<string> paths);
         BookFile GetFileWithPath(string path);
         void DeleteFilesByBook(int bookId);
@@ -107,6 +108,25 @@ namespace NzbDrone.Core.MediaFiles
             // ensure path ends with a single trailing path separator to avoid matching partial paths
             var safePath = path.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
             return _database.Query<BookFile>(new SqlBuilder(_database.DatabaseType).Where<BookFile>(x => x.Path.StartsWith(safePath))).ToList();
+        }
+
+        public List<BookFile> GetFilesWithPaths(List<string> paths)
+        {
+            // Exact match on a set of paths, compiled to "Path = ANY (@paths)".
+            //
+            // Deliberately not GetFilesWithBasePath: StartsWith compiles to ILIKE '<prefix>%',
+            // and ILIKE treats a backslash in the prefix as an escape character, so any folder
+            // whose name contains one silently fails to match its own files.  A caller checking
+            // "is this file already known" would then be told no and insert it a second time.
+            //
+            // Deliberately not GetFileWithPath(List): that one reads every BookFile row joined
+            // to Editions and filters in memory, which is far too expensive to run per batch.
+            if (paths == null || paths.Count == 0)
+            {
+                return new List<BookFile>();
+            }
+
+            return _database.Query<BookFile>(new SqlBuilder(_database.DatabaseType).Where<BookFile>(x => paths.Contains(x.Path))).ToList();
         }
 
         public BookFile GetFileWithPath(string path)
