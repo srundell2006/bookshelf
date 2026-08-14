@@ -44,6 +44,10 @@ namespace NzbDrone.Core.MediaFiles
         // library's worth of decisions in memory and writing nothing until the scan ends.
         private const int ImportBatchSize = 100;
 
+        // Trailing part/volume/disc markers, used to tell whether two adjacent files in the same
+        // directory belong to the same book before deciding a batch boundary is safe.
+        private static readonly Regex MultiPartSuffixRegex = new Regex(@"[\s._-]*(?:\(?(?:part|pt|vol|volume|book|disc|cd)[\s._-]*\d+\)?|\(?\d+\s*of\s*\d+\)?)\s*$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         private readonly IConfigService _configService;
         private readonly IDiskProvider _diskProvider;
         private readonly ICalibreProxy _calibre;
@@ -296,24 +300,30 @@ namespace NzbDrone.Core.MediaFiles
         {
             // Group by containing directory before batching.  Every file that belongs to the same
             // book has to reach TrackGroupingService together - splitting a multi-part book across
-            // two batches would let each half be identified on its own and mis-matched.  A single
-            // directory therefore always stays whole, even if it is larger than the batch size.
-            // Grouping explicitly (rather than relying on enumeration order) keeps this correct
-            // whatever order the provider walks the tree in.
+            // two batches would let each half be identified on its own and mis-matched.  Grouping
+            // explicitly (rather than relying on enumeration order) keeps this correct whatever
+            // order the provider walks the tree in.
+            //
+            // A directory is no longer kept whole regardless of size.  A root folder holding
+            // thousands of loose files would otherwise become one enormous batch: it commits
+            // nothing until it finishes, takes hours, and is repeated in full whenever a scan is
+            // restarted.  Oversized directories are chunked instead - but only ever on a boundary
+            // between two different books, so a multi-file book is still never split.
             var batches = new List<List<string>>();
             var current = new List<string>();
 
             foreach (var group in paths.GroupBy(x => Path.GetDirectoryName(x), PathEqualityComparer.Instance))
             {
-                var groupPaths = group.ToList();
-
-                if (current.Count > 0 && current.Count + groupPaths.Count > batchSize)
+                foreach (var chunk in ChunkDirectory(group.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList(), batchSize))
                 {
-                    batches.Add(current);
-                    current = new List<string>();
-                }
+                    if (current.Count > 0 && current.Count + chunk.Count > batchSize)
+                    {
+                        batches.Add(current);
+                        current = new List<string>();
+                    }
 
-                current.AddRange(groupPaths);
+                    current.AddRange(chunk);
+                }
             }
 
             if (current.Count > 0)
@@ -322,6 +332,50 @@ namespace NzbDrone.Core.MediaFiles
             }
 
             return batches;
+        }
+
+        private static IEnumerable<List<string>> ChunkDirectory(List<string> orderedPaths, int batchSize)
+        {
+            // Walk the directory in name order and only close a chunk once it is big enough AND
+            // the next file belongs to a different book, so every file of a multi-file book stays
+            // together.  A single book spanning more files than the batch size still comes through
+            // whole, which is the behaviour that matters for correctness.
+            var chunk = new List<string>();
+            string previousKey = null;
+
+            foreach (var path in orderedPaths)
+            {
+                var key = GetBookKey(path);
+
+                if (chunk.Count >= batchSize &&
+                    previousKey != null &&
+                    !string.Equals(key, previousKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    yield return chunk;
+                    chunk = new List<string>();
+                }
+
+                chunk.Add(path);
+                previousKey = key;
+            }
+
+            if (chunk.Count > 0)
+            {
+                yield return chunk;
+            }
+        }
+
+        private static string GetBookKey(string path)
+        {
+            var name = Path.GetFileNameWithoutExtension(path) ?? string.Empty;
+
+            // Strip a trailing part/volume marker so "Title Part 1" and "Title Part 2" share a key
+            // and cannot be separated.  Over-stripping is harmless here - it only makes two
+            // adjacent files look like one book and delays a split - whereas under-stripping could
+            // split a book, so the pattern errs towards stripping.
+            var stripped = MultiPartSuffixRegex.Replace(name, string.Empty).Trim();
+
+            return stripped.Length > 0 ? stripped : name;
         }
 
         private List<string> GetBookFilePaths(string path)
