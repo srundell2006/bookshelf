@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using NzbDrone.Common;
+using NzbDrone.Common.Disk;
 using NzbDrone.Core.Books;
 using NzbDrone.Core.Datastore;
 using NzbDrone.Core.Messaging.Events;
@@ -107,7 +108,17 @@ namespace NzbDrone.Core.MediaFiles
         {
             // ensure path ends with a single trailing path separator to avoid matching partial paths
             var safePath = path.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            return _database.Query<BookFile>(new SqlBuilder(_database.DatabaseType).Where<BookFile>(x => x.Path.StartsWith(safePath))).ToList();
+
+            // StartsWith compiles to "Path ILIKE @prefix || '%'", so the prefix is interpreted as a
+            // LIKE pattern rather than a literal.  A folder named "_" therefore matched every
+            // single-character folder, and a folder containing "%" would match almost anything -
+            // callers that delete whatever this returns then reach far outside the folder they were
+            // given.  The SQL stays as a coarse, index-friendly prefilter and the real boundary is
+            // enforced here, which also keeps behaviour identical on SQLite (whose generated LIKE
+            // has no ESCAPE clause to escape into).
+            return _database.Query<BookFile>(new SqlBuilder(_database.DatabaseType).Where<BookFile>(x => x.Path.StartsWith(safePath)))
+                .Where(x => x.Path != null && x.Path.StartsWith(safePath, DiskProviderBase.PathStringComparison))
+                .ToList();
         }
 
         public List<BookFile> GetFilesWithPaths(List<string> paths)
