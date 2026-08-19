@@ -40,6 +40,12 @@ namespace NzbDrone.Core.MetadataSource.BookInfo
         private readonly Logger _logger;
         private readonly IMetadataRequestBuilder _requestBuilder;
         private readonly ICached<HashSet<string>> _cache;
+
+        // Identification asks for the same author over and over - one 404 id was requested 27
+        // times in a single scan - and every miss was a fresh round trip.  Successful lookups are
+        // cached by the HTTP layer, but it only stores responses that were not errors, so a 404
+        // costs the same every time it is repeated.  This remembers those.
+        private readonly ICached<string> _authorNotFoundCache;
         private readonly CachingService _authorCache;
 
         public BookInfoProxy(IHttpClient httpClient,
@@ -60,9 +66,10 @@ namespace NzbDrone.Core.MetadataSource.BookInfo
             _editionService = editionService;
             _requestBuilder = requestBuilder;
             _cache = cacheManager.GetCache<HashSet<string>>(GetType());
+            _authorNotFoundCache = cacheManager.GetCache<string>(GetType(), "authorNotFound");
             _logger = logger;
 
-            _authorCache = new CachingService(new MemoryCacheProvider(new MemoryCache(new MemoryCacheOptions { SizeLimit = 10 })));
+            _authorCache = new CachingService(new MemoryCacheProvider(new MemoryCache(new MemoryCacheOptions { SizeLimit = 1000 })));
             _authorCache.DefaultCachePolicy = new CacheDefaults
             {
                 DefaultCacheDurationSeconds = 60
@@ -92,6 +99,15 @@ namespace NzbDrone.Core.MetadataSource.BookInfo
         {
             _logger.Debug("Getting Author details GoodreadsId of {0}", foreignAuthorId);
 
+            // An id the metadata server does not know about will not start existing part way
+            // through a scan, so ask once and remember the no.  Without this every book parsed
+            // towards the same wrong author repeats the same failing request.
+            if (_authorNotFoundCache.Find(foreignAuthorId) != null)
+            {
+                _logger.Trace("Skipping author {0}, already known to be missing", foreignAuthorId);
+                throw new AuthorNotFoundException(foreignAuthorId);
+            }
+
             try
             {
                 if (useCache)
@@ -100,6 +116,11 @@ namespace NzbDrone.Core.MetadataSource.BookInfo
                 }
 
                 return PollAuthorUncached(foreignAuthorId);
+            }
+            catch (AuthorNotFoundException)
+            {
+                _authorNotFoundCache.Set(foreignAuthorId, foreignAuthorId, TimeSpan.FromHours(1));
+                throw;
             }
             catch (BookInfoException e)
             {
@@ -250,6 +271,13 @@ namespace NzbDrone.Core.MetadataSource.BookInfo
                 return new List<Book>();
             }
 
+            // Nothing found means nothing to map; returning here also skips the per-author and
+            // per-work follow-up lookups below, which would otherwise run over an empty set.
+            if (result == null || result.Count == 0)
+            {
+                return new List<Book>();
+            }
+
             var books = new List<Book>();
 
             if (getAllEditions)
@@ -314,7 +342,11 @@ namespace NzbDrone.Core.MetadataSource.BookInfo
             try
             {
                 var authorId = id.ToString();
-                var result = GetAuthorInfo(authorId);
+
+                // useCache: this is a metadata lookup in the middle of identification, not a
+                // library refresh, so the same author being asked for repeatedly should be
+                // answered from memory rather than re-fetched.
+                var result = GetAuthorInfo(authorId, true);
                 var books = result.Books.Value;
                 var authors = new Dictionary<string, AuthorMetadata> { { authorId, result.Metadata.Value } };
 
