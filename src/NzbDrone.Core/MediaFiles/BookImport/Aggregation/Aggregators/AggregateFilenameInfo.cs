@@ -50,6 +50,10 @@ namespace NzbDrone.Core.MediaFiles.BookImport.Aggregation.Aggregators
             };
         }
 
+        private static readonly Regex TrailingYearRegex = new Regex(@"[\s_-]*\(\d{3,4}\)\s*$", RegexOptions.Compiled);
+
+        private static readonly Regex LeadingTrackRegex = new Regex(@"^\s*\d+[\s._-]+", RegexOptions.Compiled);
+
         public AggregateFilenameInfo(Logger logger)
         {
             _logger = logger;
@@ -125,12 +129,26 @@ namespace NzbDrone.Core.MediaFiles.BookImport.Aggregation.Aggregators
             string author;
             if (keys.Contains("author"))
             {
-                if (EqualFields(matches.Values, "author"))
+                var authorUniform = EqualFields(matches.Values, "author");
+                var titleUniform = keys.Contains("title") && EqualFields(matches.Values, "title");
+
+                if (authorUniform && titleUniform)
+                {
+                    // Both fields are uniform, so uniformity cannot tell us which one is the
+                    // author. This is always the case for a single-file release, where each
+                    // field trivially has one distinct value. Falling back to "leftmost wins"
+                    // silently swaps author and title for libraries named "Title - Author".
+                    // The folder the file sits in is usually named after the author, so use
+                    // that to break the tie.
+                    titleField = PreferFieldByFolder(matches);
+                    author = someMatch.Groups[titleField == "title" ? "author" : "title"].Value.Trim();
+                }
+                else if (authorUniform)
                 {
                     author = someMatch.Groups["author"].Value.Trim();
                     titleField = "title";
                 }
-                else if (EqualFields(matches.Values, "title"))
+                else if (titleUniform)
                 {
                     author = someMatch.Groups["title"].Value.Trim();
                     titleField = "author";
@@ -185,5 +203,85 @@ namespace NzbDrone.Core.MediaFiles.BookImport.Aggregation.Aggregators
                 }
             }
         }
+
+        /// <summary>
+        /// Decide which regex group holds the book title when both "author" and "title" are
+        /// uniform across the release. Compares each candidate against the names of the
+        /// directories containing the files - libraries almost always file a book under a
+        /// folder named for its author. Returns the group name to use as the title, keeping
+        /// the historical "leftmost is the author" answer when the folders tell us nothing.
+        /// </summary>
+        private string PreferFieldByFolder(Dictionary<LocalBook, Match> matches)
+        {
+            const double minScore = 0.8;
+
+            double authorScore = 0;
+            double titleScore = 0;
+
+            foreach (var pair in matches)
+            {
+                var folders = FolderNames(pair.Key.Path);
+                if (!folders.Any())
+                {
+                    continue;
+                }
+
+                authorScore += BestFolderScore(folders, pair.Value.Groups["author"].Value);
+                titleScore += BestFolderScore(folders, pair.Value.Groups["title"].Value);
+            }
+
+            // The field that looks like the folder name is the author, so the OTHER one is
+            // the title. Only override the default when the evidence is clear.
+            if (titleScore > authorScore && titleScore >= minScore)
+            {
+                _logger.Debug("Folder names suggest the trailing field is the author (title {0:0.00} vs author {1:0.00}); reading filenames as 'Title - Author'", titleScore, authorScore);
+                return "author";
+            }
+
+            return "title";
+        }
+
+        private static List<string> FolderNames(string path)
+        {
+            var names = new List<string>();
+            var dir = Path.GetDirectoryName(path);
+
+            // the author folder is usually the parent, but a series subfolder is common too
+            for (var i = 0; i < 2 && dir.IsNotNullOrWhiteSpace(); i++)
+            {
+                var name = Path.GetFileName(dir);
+                if (name.IsNotNullOrWhiteSpace())
+                {
+                    names.Add(name);
+                }
+
+                dir = Path.GetDirectoryName(dir);
+            }
+
+            return names;
+        }
+
+        private static double BestFolderScore(List<string> folders, string candidate)
+        {
+            var cleaned = LeadingTrackRegex.Replace(TrailingYearRegex.Replace(candidate ?? string.Empty, string.Empty), string.Empty).Trim().RemoveAccent();
+
+            if (cleaned.IsNullOrWhiteSpace())
+            {
+                return 0;
+            }
+
+            double best = 0;
+            foreach (var folder in folders)
+            {
+                var score = folder.RemoveAccent().FuzzyMatch(cleaned, 0.6).Item3;
+                if (score > best)
+                {
+                    best = score;
+                }
+            }
+
+            return best;
+        }
+
     }
 }
