@@ -86,11 +86,41 @@ namespace NzbDrone.Core.MediaFiles
             _logger = logger;
         }
 
+        // A folder asking for day 31 would otherwise never be scanned in a month that has
+        // no 31st. Clamp to the last day of the current month so every folder gets its turn
+        // in every month, including February.
+        private static bool IsDueToday(int scanDay, int today, int daysInMonth)
+        {
+            return today == Math.Min(scanDay, daysInMonth);
+        }
+
         public void Scan(List<string> folders = null, FilterFilesType filter = FilterFilesType.Known, bool addNewAuthors = false, List<int> authorIds = null)
         {
-            if (folders == null)
+            var scheduledRun = folders == null;
+
+            if (scheduledRun)
             {
-                folders = _rootFolderService.All().Select(x => x.Path).ToList();
+                // A scheduled run covers every root folder, which on a large library means
+                // walking the whole tree before a single file is looked at. Root folders can
+                // opt into a day of the month instead, so the work spreads across the month
+                // and each run only walks the folders due today. A folder with no day set
+                // keeps the old behaviour and is scanned every time.
+                var now = DateTime.Now;
+                var today = now.Day;
+                var daysInMonth = DateTime.DaysInMonth(now.Year, now.Month);
+                var all = _rootFolderService.All();
+
+                folders = all
+                    .Where(x => x.ScanDayOfMonth == null || IsDueToday(x.ScanDayOfMonth.Value, today, daysInMonth))
+                    .Select(x => x.Path)
+                    .ToList();
+
+                var skipped = all.Count - folders.Count;
+
+                if (skipped > 0)
+                {
+                    _logger.Info("Scheduled scan covering {0} of {1} root folders due on day {2} of the month", folders.Count, all.Count, today);
+                }
             }
 
             if (authorIds == null)
