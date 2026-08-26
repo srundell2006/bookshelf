@@ -7,6 +7,21 @@ import RootFolderSelectInput from './RootFolderSelectInput';
 
 const ADD_NEW_KEY = 'addNew';
 
+// The root folder whose letters claim this author, if any. Returns null when no
+// folder claims the letter, so callers can fall back to their usual default.
+function findFolderForLetter(values, letter) {
+  if (!letter) {
+    return null;
+  }
+
+  return values.find((v) => (
+    v.key &&
+    v.key !== ADD_NEW_KEY &&
+    Array.isArray(v.letters) &&
+    v.letters.includes(letter)
+  )) || null;
+}
+
 function createMapStateToProps() {
   return createSelector(
     (state) => state.settings.rootFolders,
@@ -21,6 +36,7 @@ function createMapStateToProps() {
           value: rootFolder.path,
           name: rootFolder.name,
           freeSpace: rootFolder.freeSpace,
+          letters: rootFolder.letters || [],
           isMissing: false
         };
       });
@@ -88,8 +104,19 @@ class RootFolderSelectInputConnector extends Component {
       name,
       value,
       values,
+      letter,
       onChange
     } = this.props;
+
+    // A letter mapping wins over the remembered last-used folder, but only on
+    // mount - once the form is open the user's own choice must stick, so this
+    // deliberately does not re-run on update.
+    const mapped = findFolderForLetter(values, letter);
+
+    if (mapped && mapped.key !== value) {
+      onChange({ name, value: mapped.key });
+      return;
+    }
 
     if (!value || !values.some((v) => v.key === value) || value === ADD_NEW_KEY) {
       const defaultValue = values[0];
@@ -115,7 +142,8 @@ class RootFolderSelectInputConnector extends Component {
     }
 
     if (!value && values.length && values.some((v) => !!v.key && v.key !== ADD_NEW_KEY)) {
-      const defaultValue = values[0];
+      // Root folders may have arrived after mount, so apply the mapping here too.
+      const defaultValue = findFolderForLetter(values, this.props.letter) || values[0];
 
       if (defaultValue.key !== ADD_NEW_KEY) {
         onChange({ name, value: defaultValue.key });
@@ -127,7 +155,10 @@ class RootFolderSelectInputConnector extends Component {
   // Render
 
   render() {
+    // letter only drives the default selection above; the select itself has no
+    // use for it and would pass it on to the DOM.
     const {
+      letter,
       ...otherProps
     } = this.props;
 
@@ -145,6 +176,7 @@ RootFolderSelectInputConnector.propTypes = {
   value: PropTypes.string,
   values: PropTypes.arrayOf(PropTypes.object).isRequired,
   includeNoChange: PropTypes.bool.isRequired,
+  letter: PropTypes.string,
   onChange: PropTypes.func.isRequired
 };
 
