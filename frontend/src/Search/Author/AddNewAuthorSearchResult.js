@@ -73,6 +73,7 @@ class AddNewAuthorSearchResult extends Component {
       foreignAuthorId,
       titleSlug,
       authorName,
+      sortNameLastFirst,
       year,
       disambiguation,
       status,
@@ -204,6 +205,7 @@ class AddNewAuthorSearchResult extends Component {
           isOpen={isNewAddAuthorModalOpen && !isExistingAuthor}
           foreignAuthorId={foreignAuthorId}
           authorName={authorName}
+          sortNameLastFirst={sortNameLastFirst}
           disambiguation={disambiguation}
           year={year}
           overview={overview}
@@ -220,6 +222,7 @@ AddNewAuthorSearchResult.propTypes = {
   foreignAuthorId: PropTypes.string.isRequired,
   titleSlug: PropTypes.string.isRequired,
   authorName: PropTypes.string.isRequired,
+  sortNameLastFirst: PropTypes.string,
   year: PropTypes.number,
   disambiguation: PropTypes.string,
   status: PropTypes.string.isRequired,
