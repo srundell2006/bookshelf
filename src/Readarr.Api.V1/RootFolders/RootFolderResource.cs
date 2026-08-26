@@ -28,6 +28,8 @@ namespace Readarr.Api.V1.RootFolders
         public string OutputFormat { get; set; }
         public string OutputProfile { get; set; }
         public bool UseSsl { get; set; }
+        public List<string> Letters { get; set; }
+        public int? ScanDayOfMonth { get; set; }
 
         public bool Accessible { get; set; }
         public long? FreeSpace { get; set; }
@@ -64,6 +66,8 @@ namespace Readarr.Api.V1.RootFolders
                 OutputFormat = model.CalibreSettings?.OutputFormat,
                 OutputProfile = ((CalibreProfile)(model.CalibreSettings?.OutputProfile ?? 0)).ToString(),
                 UseSsl = model.CalibreSettings?.UseSsl ?? false,
+                Letters = model.Letters,
+                ScanDayOfMonth = model.ScanDayOfMonth,
 
                 Accessible = model.Accessible,
                 FreeSpace = model.FreeSpace,
@@ -111,8 +115,28 @@ namespace Readarr.Api.V1.RootFolders
                 DefaultNewItemMonitorOption = resource.DefaultNewItemMonitorOption,
                 DefaultTags = resource.DefaultTags ?? new HashSet<int>(),
                 IsCalibreLibrary = resource.IsCalibreLibrary,
-                CalibreSettings = cs
+                CalibreSettings = cs,
+                Letters = NormaliseLetters(resource.Letters),
+                ScanDayOfMonth = resource.ScanDayOfMonth is >= 1 and <= 31 ? resource.ScanDayOfMonth : null
             };
+        }
+
+        // Letters arrive from the UI however the user typed them. Store one uppercase
+        // character per entry so lookups do not have to care about case or stray spaces.
+        private static List<string> NormaliseLetters(List<string> letters)
+        {
+            if (letters == null)
+            {
+                return new List<string>();
+            }
+
+            return letters
+                .Where(x => x.IsNotNullOrWhiteSpace())
+                .Select(x => x.Trim().ToUpperInvariant())
+                .Where(x => x.Length == 1)
+                .Distinct()
+                .OrderBy(x => x)
+                .ToList();
         }
 
         public static List<RootFolderResource> ToResource(this IEnumerable<RootFolder> models)
