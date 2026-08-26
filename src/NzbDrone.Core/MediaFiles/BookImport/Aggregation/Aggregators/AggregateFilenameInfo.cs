@@ -282,6 +282,5 @@ namespace NzbDrone.Core.MediaFiles.BookImport.Aggregation.Aggregators
 
             return best;
         }
-
     }
 }
