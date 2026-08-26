@@ -10,6 +10,7 @@ import FormLabel from 'Components/Form/FormLabel';
 import Icon from 'Components/Icon';
 import Popover from 'Components/Tooltip/Popover';
 import { icons, inputTypes, tooltipPositions } from 'Helpers/Props';
+import getAuthorLetter from 'Utilities/Author/getAuthorLetter';
 import translate from 'Utilities/String/translate';
 import styles from './AddAuthorOptionsForm.css';
 
@@ -42,9 +43,15 @@ class AddAuthorOptionsForm extends Component {
       folder,
       tags,
       isWindows,
+      sortNameLastFirst,
       onInputChange,
       ...otherProps
     } = this.props;
+
+    // Pre-select the root folder that claims this author's surname initial. The
+    // select falls back to its usual default when no folder claims the letter,
+    // and the user can still pick anything they like.
+    const letter = getAuthorLetter({ sortNameLastFirst });
 
     return (
       <Form {...otherProps}>
@@ -56,6 +63,7 @@ class AddAuthorOptionsForm extends Component {
           <FormInputGroup
             type={inputTypes.ROOT_FOLDER_SELECT}
             name="rootFolderPath"
+            letter={letter}
             valueOptions={{
               authorFolder: folder,
               isWindows
@@ -182,6 +190,7 @@ class AddAuthorOptionsForm extends Component {
 }
 
 AddAuthorOptionsForm.propTypes = {
+  sortNameLastFirst: PropTypes.string,
   rootFolderPath: PropTypes.object,
   monitor: PropTypes.object.isRequired,
   monitorNewItems: PropTypes.object.isRequired,
