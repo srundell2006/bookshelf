@@ -57,8 +57,23 @@ function EditRootFolderModalContent(props) {
     library,
     outputFormat,
     outputProfile,
-    useSsl
+    useSsl,
+    letters,
+    scanDayOfMonth
   } = item;
+
+  // The API stores letters as an array but a plain comma-separated text box is a
+  // far easier thing to edit than 26 checkboxes, so translate at the boundary.
+  const lettersValue = Array.isArray(letters?.value) ? letters.value.join(', ') : '';
+
+  const onLettersChange = ({ name: inputName, value }) => {
+    const parsed = value
+      .split(/[^a-zA-Z]+/)
+      .filter((x) => x.length === 1)
+      .map((x) => x.toUpperCase());
+
+    onInputChange({ name: inputName, value: [...new Set(parsed)].sort() });
+  };
 
   const profileHelpText = calibreProfiles.options.find((x) => x.key === outputProfile.value).description;
 
@@ -218,6 +233,37 @@ function EditRootFolderModalContent(props) {
                     name="defaultTags"
                     helpText={translate('DefaultTagsHelpText')}
                     {...defaultTags}
+                    onChange={onInputChange}
+                  />
+                </FormGroup>
+
+                <FormGroup>
+                  <FormLabel>
+                    {'Author Letters'}
+                  </FormLabel>
+
+                  <FormInputGroup
+                    type={inputTypes.TEXT}
+                    name="letters"
+                    helpText={'Surname initials filed in this folder, e.g. A, B, C. Adding an author defaults to the folder claiming their surname initial.'}
+                    {...letters}
+                    value={lettersValue}
+                    onChange={onLettersChange}
+                  />
+                </FormGroup>
+
+                <FormGroup>
+                  <FormLabel>
+                    {'Scan Day Of Month'}
+                  </FormLabel>
+
+                  <FormInputGroup
+                    type={inputTypes.NUMBER}
+                    name="scanDayOfMonth"
+                    min={1}
+                    max={31}
+                    helpText={'Day of the month (1-31) the scheduled scan covers this folder. Leave empty to scan it on every scheduled run.'}
+                    {...scanDayOfMonth}
                     onChange={onInputChange}
                   />
                 </FormGroup>
