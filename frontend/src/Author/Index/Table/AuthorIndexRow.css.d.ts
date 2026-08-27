@@ -6,6 +6,7 @@ interface CssExports {
   'banner': string;
   'bannerGrow': string;
   'bannerImage': string;
+  'bookFileCount': string;
   'bookProgress': string;
   'cell': string;
   'checkInput': string;
@@ -13,6 +14,7 @@ interface CssExports {
   'lastBook': string;
   'link': string;
   'metadataProfileId': string;
+  'missingBookCount': string;
   'nextBook': string;
   'overlayTitle': string;
   'path': string;
@@ -22,6 +24,7 @@ interface CssExports {
   'sortName': string;
   'status': string;
   'tags': string;
+  'totalBookCount': string;
   'useSceneNumbering': string;
 }
 export const cssExports: CssExports;

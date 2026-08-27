@@ -79,6 +79,14 @@
   flex-direction: column;
 }
 
+.totalBookCount,
+.bookFileCount,
+.missingBookCount {
+  composes: cell;
+
+  flex: 0 0 120px;
+}
+
 .path {
   composes: cell;
 
