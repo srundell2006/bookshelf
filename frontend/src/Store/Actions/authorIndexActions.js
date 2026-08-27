@@ -119,6 +119,24 @@ export const defaultState = {
       isVisible: true
     },
     {
+      name: 'totalBookCount',
+      label: 'Total Books',
+      isSortable: true,
+      isVisible: true
+    },
+    {
+      name: 'bookFileCount',
+      label: 'Books Acquired',
+      isSortable: true,
+      isVisible: true
+    },
+    {
+      name: 'missingBookCount',
+      label: 'Books Missing',
+      isSortable: true,
+      isVisible: true
+    },
+    {
       name: 'path',
       label: 'Path',
       isSortable: true,
@@ -190,6 +208,26 @@ export const defaultState = {
       const { statistics = {} } = item;
 
       return statistics.bookCount || 0;
+    },
+
+    totalBookCount: function(item) {
+      const { statistics = {} } = item;
+
+      return statistics.totalBookCount || 0;
+    },
+
+    bookFileCount: function(item) {
+      const { statistics = {} } = item;
+
+      return statistics.bookFileCount || 0;
+    },
+
+    // Missing is not reported by the API; it is whatever the author has that is
+    // not on disk yet. Derived here so the column can be sorted like any other.
+    missingBookCount: function(item) {
+      const { statistics = {} } = item;
+
+      return Math.max((statistics.totalBookCount || 0) - (statistics.bookFileCount || 0), 0);
     },
 
     ratings: function(item) {
@@ -270,6 +308,16 @@ export const defaultState = {
     {
       name: 'bookCount',
       label: 'Book Count',
+      type: filterBuilderTypes.NUMBER
+    },
+    {
+      name: 'totalBookCount',
+      label: 'Total Books',
+      type: filterBuilderTypes.NUMBER
+    },
+    {
+      name: 'bookFileCount',
+      label: 'Books Acquired',
       type: filterBuilderTypes.NUMBER
     },
     {
