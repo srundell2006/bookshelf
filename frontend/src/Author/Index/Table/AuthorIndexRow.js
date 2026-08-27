@@ -306,6 +306,43 @@ class AuthorIndexRow extends Component {
               );
             }
 
+            if (name === 'totalBookCount') {
+              return (
+                <VirtualTableRowCell
+                  key={name}
+                  className={styles[name]}
+                >
+                  {totalBookCount}
+                </VirtualTableRowCell>
+              );
+            }
+
+            if (name === 'bookFileCount') {
+              return (
+                <VirtualTableRowCell
+                  key={name}
+                  className={styles[name]}
+                >
+                  {bookFileCount}
+                </VirtualTableRowCell>
+              );
+            }
+
+            if (name === 'missingBookCount') {
+              // The API reports what the author has and what is on disk; missing is
+              // the gap between them, floored so a stale count cannot show negative.
+              const missingBookCount = Math.max(totalBookCount - bookFileCount, 0);
+
+              return (
+                <VirtualTableRowCell
+                  key={name}
+                  className={styles[name]}
+                >
+                  {missingBookCount}
+                </VirtualTableRowCell>
+              );
+            }
+
             if (name === 'path') {
               return (
                 <VirtualTableRowCell
