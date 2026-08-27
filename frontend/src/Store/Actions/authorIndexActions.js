@@ -331,6 +331,32 @@ export const defaultState = {
       type: filterBuilderTypes.STRING
     },
     {
+      // Which root folder an author lives under. The API derives this from the
+      // author's path, so once letter folders are registered as root folders an
+      // author filed under one reports that folder rather than the library root -
+      // which is what makes "only the ones still in the library root" expressible.
+      name: 'rootFolderPath',
+      label: 'Root Folder',
+      type: filterBuilderTypes.EXACT,
+      optionsSelector: function(items) {
+        const seen = new Set();
+
+        return items.reduce((acc, author) => {
+          const rootFolderPath = author.rootFolderPath;
+
+          if (rootFolderPath && !seen.has(rootFolderPath)) {
+            seen.add(rootFolderPath);
+            acc.push({
+              id: rootFolderPath,
+              name: rootFolderPath
+            });
+          }
+
+          return acc;
+        }, []).sort(sortByName);
+      }
+    },
+    {
       name: 'sizeOnDisk',
       label: 'Size on Disk',
       type: filterBuilderTypes.NUMBER,
