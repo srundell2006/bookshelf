@@ -22,6 +22,16 @@ namespace Readarr.Api.V1.Author
         // There is deliberately no "preview everything" mode. Building a preview costs one
         // file query per author, so an implicit whole-library call would be tens of
         // thousands of queries from a single click. Callers name the authors they mean.
+        // POST is what the UI actually uses. A selection of a few hundred authors blows
+        // past Kestrel's 8KB request-line limit as a query string - measured: 600 ids is
+        // 9.6KB and comes back 414 URI Too Long, rejected before MVC ever sees it, which
+        // is why such a failure never appears in the API log.
+        [HttpPost]
+        public List<MoveAuthorResource> GetMovePreviews([FromBody] MoveAuthorPreviewRequest request)
+        {
+            return Previews(request?.AuthorIds);
+        }
+
         [HttpGet]
         public List<MoveAuthorResource> GetMovePreviews(int? authorId, [FromQuery] List<int> authorIds)
         {
@@ -37,7 +47,12 @@ namespace Readarr.Api.V1.Author
                 ids.AddRange(authorIds);
             }
 
-            if (!ids.Any())
+            return Previews(ids);
+        }
+
+        private List<MoveAuthorResource> Previews(List<int> ids)
+        {
+            if (ids == null || !ids.Any())
             {
                 return new List<MoveAuthorResource>();
             }
