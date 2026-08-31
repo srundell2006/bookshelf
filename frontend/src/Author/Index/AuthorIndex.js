@@ -15,6 +15,7 @@ import PageToolbarSection from 'Components/Page/Toolbar/PageToolbarSection';
 import PageToolbarSeparator from 'Components/Page/Toolbar/PageToolbarSeparator';
 import TableOptionsModalWrapper from 'Components/Table/TableOptions/TableOptionsModalWrapper';
 import { align, icons, sortDirections } from 'Helpers/Props';
+import MoveAuthorPreviewModalConnector from 'MoveAuthor/MoveAuthorPreviewModalConnector';
 import getErrorMessage from 'Utilities/Object/getErrorMessage';
 import hasDifferentItemsOrOrder from 'Utilities/Object/hasDifferentItemsOrOrder';
 import translate from 'Utilities/String/translate';
@@ -61,6 +62,7 @@ class AuthorIndex extends Component {
       isOverviewOptionsModalOpen: false,
       isEditorActive: false,
       isOrganizingAuthorModalOpen: false,
+      isPreviewAuthorMoveModalOpen: false,
       isRetaggingAuthorModalOpen: false,
       allSelected: false,
       allUnselected: false,
@@ -239,6 +241,14 @@ class AuthorIndex extends Component {
       authorIds: this.getSelectedIds(),
       ...changes
     });
+  };
+
+  onPreviewAuthorMovePress = () => {
+    this.setState({ isPreviewAuthorMoveModalOpen: true });
+  };
+
+  onPreviewAuthorMoveModalClose = () => {
+    this.setState({ isPreviewAuthorMoveModalOpen: false });
   };
 
   onOrganizeAuthorPress = () => {
@@ -513,6 +523,7 @@ class AuthorIndex extends Component {
               showMetadataProfile={true}
               onSaveSelected={this.onSaveSelected}
               onOrganizeAuthorPress={this.onOrganizeAuthorPress}
+              onPreviewAuthorMovePress={this.onPreviewAuthorMovePress}
               onRetagAuthorPress={this.onRetagAuthorPress}
             />
         }
@@ -531,6 +542,12 @@ class AuthorIndex extends Component {
           isOpen={this.state.isOrganizingAuthorModalOpen}
           authorIds={selectedAuthorIds}
           onModalClose={this.onOrganizeAuthorModalClose}
+        />
+
+        <MoveAuthorPreviewModalConnector
+          isOpen={this.state.isPreviewAuthorMoveModalOpen}
+          authorIds={selectedAuthorIds}
+          onModalClose={this.onPreviewAuthorMoveModalClose}
         />
 
         <RetagAuthorModal

@@ -156,7 +156,8 @@ class AuthorEditorFooter extends Component {
       isOrganizingAuthor,
       isRetaggingAuthor,
       onOrganizeAuthorPress,
-      onRetagAuthorPress
+      onRetagAuthorPress,
+      onPreviewAuthorMovePress
     } = this.props;
 
     const {
@@ -294,6 +295,16 @@ class AuthorEditorFooter extends Component {
                 </SpinnerButton>
 
                 <SpinnerButton
+                  className={styles.organizeSelectedButton}
+                  kind={kinds.WARNING}
+                  isSpinning={false}
+                  isDisabled={!selectedCount || isOrganizingAuthor || isRetaggingAuthor}
+                  onPress={onPreviewAuthorMovePress}
+                >
+                  {translate('PreviewAuthorMove')}
+                </SpinnerButton>
+
+                <SpinnerButton
                   className={styles.tagsButton}
                   isSpinning={isSaving && savingTags}
                   isDisabled={!selectedCount || isOrganizingAuthor || isRetaggingAuthor}
@@ -355,6 +366,7 @@ AuthorEditorFooter.propTypes = {
   onSaveSelected: PropTypes.func.isRequired,
   onOrganizeAuthorPress: PropTypes.func.isRequired,
   onRetagAuthorPress: PropTypes.func.isRequired,
+  onPreviewAuthorMovePress: PropTypes.func.isRequired,
   dispatchFetchRootFolders: PropTypes.func.isRequired
 };
 

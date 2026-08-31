@@ -11,6 +11,7 @@ export const BOOK_SEARCH = 'BookSearch';
 export const INTERACTIVE_IMPORT = 'ManualImport';
 export const MISSING_BOOK_SEARCH = 'MissingBookSearch';
 export const MOVE_AUTHOR = 'MoveAuthor';
+export const MOVE_AUTHOR_TO_LETTER = 'MoveAuthorToLetter';
 export const REFRESH_AUTHOR = 'RefreshAuthor';
 export const BULK_REFRESH_AUTHOR = 'BulkRefreshAuthor';
 export const REFRESH_BOOK = 'RefreshBook';

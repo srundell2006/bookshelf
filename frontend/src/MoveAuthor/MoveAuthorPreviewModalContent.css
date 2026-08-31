@@ -1,0 +1,14 @@
+.previews {
+  margin-top: 10px;
+}
+
+.selectAllInputContainer {
+  margin-right: auto;
+  line-height: 30px;
+}
+
+.selectAllInput {
+  composes: input from '~Components/Form/CheckInput.css';
+
+  margin: 0;
+}

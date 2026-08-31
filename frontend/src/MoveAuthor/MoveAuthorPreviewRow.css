@@ -1,0 +1,43 @@
+.row {
+  display: flex;
+  margin-bottom: 5px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--borderColor);
+
+  &:last-of-type {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+}
+
+.selectedContainer {
+  margin-right: 30px;
+}
+
+.details {
+  overflow: hidden;
+}
+
+.authorName {
+  margin-bottom: 3px;
+  font-weight: bold;
+}
+
+.letter {
+  margin-left: 8px;
+}
+
+.path {
+  margin-left: 10px;
+}
+
+.files {
+  margin-top: 4px;
+  margin-left: 24px;
+}
+
+.file {
+  color: var(--disabledColor);
+  font-size: $smallFontSize;
+}

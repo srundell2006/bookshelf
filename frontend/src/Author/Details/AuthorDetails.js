@@ -21,6 +21,7 @@ import SwipeHeaderConnector from 'Components/Swipe/SwipeHeaderConnector';
 import { align, icons, kinds } from 'Helpers/Props';
 import InteractiveSearchFilterMenuConnector from 'InteractiveSearch/InteractiveSearchFilterMenuConnector';
 import InteractiveSearchTable from 'InteractiveSearch/InteractiveSearchTable';
+import MoveAuthorPreviewModalConnector from 'MoveAuthor/MoveAuthorPreviewModalConnector';
 import OrganizePreviewModalConnector from 'Organize/OrganizePreviewModalConnector';
 import RetagPreviewModalConnector from 'Retag/RetagPreviewModalConnector';
 import translate from 'Utilities/String/translate';
@@ -51,6 +52,7 @@ class AuthorDetails extends Component {
 
     this.state = {
       isOrganizeModalOpen: false,
+      isMoveAuthorModalOpen: false,
       isRetagModalOpen: false,
       isEditAuthorModalOpen: false,
       isDeleteAuthorModalOpen: false,
@@ -111,6 +113,14 @@ class AuthorDetails extends Component {
 
   onOrganizePress = () => {
     this.setState({ isOrganizeModalOpen: true });
+  };
+
+  onMoveAuthorPress = () => {
+    this.setState({ isMoveAuthorModalOpen: true });
+  };
+
+  onMoveAuthorModalClose = () => {
+    this.setState({ isMoveAuthorModalOpen: false });
   };
 
   onOrganizeModalClose = () => {
@@ -250,6 +260,7 @@ class AuthorDetails extends Component {
 
     const {
       isOrganizeModalOpen,
+      isMoveAuthorModalOpen,
       isRetagModalOpen,
       isEditAuthorModalOpen,
       isDeleteAuthorModalOpen,
@@ -303,6 +314,12 @@ class AuthorDetails extends Component {
               iconName={icons.ORGANIZE}
               isDisabled={!hasBookFiles}
               onPress={this.onOrganizePress}
+            />
+
+            <PageToolbarButton
+              label={translate('PreviewAuthorMove')}
+              iconName={icons.FOLDER_OPEN}
+              onPress={this.onMoveAuthorPress}
             />
 
             <PageToolbarButton
@@ -552,6 +569,12 @@ class AuthorDetails extends Component {
             isOpen={isOrganizeModalOpen}
             authorId={id}
             onModalClose={this.onOrganizeModalClose}
+          />
+
+          <MoveAuthorPreviewModalConnector
+            isOpen={isMoveAuthorModalOpen}
+            authorId={id}
+            onModalClose={this.onMoveAuthorModalClose}
           />
 
           <RetagPreviewModalConnector
