@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using NLog;
 using NzbDrone.Common.Extensions;
+using NzbDrone.Core.Datastore;
 using NzbDrone.Core.MediaFiles;
 using NzbDrone.Core.Organizer;
 using NzbDrone.Core.RootFolders;
@@ -62,13 +63,40 @@ namespace NzbDrone.Core.Books
             var namingConfig = (NamingConfig)null;
             var previews = new List<AuthorMovePreview>();
 
-            foreach (var author in _authorService.GetAuthors(authorIds))
+            // Fetched one at a time on purpose. IAuthorService.GetAuthors goes through
+            // BasicRepository.Get(ids), which throws if *any* id is missing - so a single
+            // author deleted in another tab while still selected would fail the whole
+            // preview with "Expected query to return N rows but returned N-1". Building a
+            // preview already costs a file query per author, so the extra indexed lookup
+            // per author does not change the shape of the work.
+            foreach (var authorId in authorIds)
             {
-                var preview = BuildPreview(author, rootFolders, namingConfig);
+                Author author;
 
-                if (preview != null)
+                try
                 {
-                    previews.Add(preview);
+                    author = _authorService.GetAuthor(authorId);
+                }
+                catch (ModelNotFoundException)
+                {
+                    _logger.Debug("Author {0} no longer exists, skipping", authorId);
+                    continue;
+                }
+
+                try
+                {
+                    var preview = BuildPreview(author, rootFolders, namingConfig);
+
+                    if (preview != null)
+                    {
+                        previews.Add(preview);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // One author with bad data - an orphaned file, an unbuildable name -
+                    // should drop out of the list, not take the whole preview down with it.
+                    _logger.Warn(ex, "Couldn't build a move preview for {0}, skipping", author.Name);
                 }
             }
 

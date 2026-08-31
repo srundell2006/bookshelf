@@ -4,6 +4,7 @@ using NLog;
 using NzbDrone.Common.Extensions;
 using NzbDrone.Common.Instrumentation.Extensions;
 using NzbDrone.Core.Books.Commands;
+using NzbDrone.Core.Datastore;
 using NzbDrone.Core.MediaFiles.Commands;
 using NzbDrone.Core.Messaging.Commands;
 using NzbDrone.Core.RootFolders;
@@ -47,14 +48,29 @@ namespace NzbDrone.Core.Books
             }
 
             var rootFolders = _rootFolderService.All();
-            var authors = _authorService.GetAuthors(message.AuthorIds);
 
             // Destination root -> the authors headed there, with the path they are leaving.
             var groups = new Dictionary<string, List<BulkMoveAuthor>>();
             var authorsToUpdate = new List<Author>();
 
-            foreach (var author in authors)
+            // One at a time rather than GetAuthors(ids): that goes through
+            // BasicRepository.Get(ids), which throws if any single id is missing. An
+            // author deleted between previewing and confirming would otherwise abort the
+            // move for everyone else in the selection.
+            foreach (var authorId in message.AuthorIds)
             {
+                Author author;
+
+                try
+                {
+                    author = _authorService.GetAuthor(authorId);
+                }
+                catch (ModelNotFoundException)
+                {
+                    _logger.Debug("Author {0} no longer exists, skipping", authorId);
+                    continue;
+                }
+
                 var destination = _letterService.GetMappedRootFolder(author, rootFolders);
 
                 if (destination == null)
